@@ -3,7 +3,7 @@
  * Caches all app assets for offline use on the plane.
  */
 
-const CACHE_NAME = 'skycoup-v2';
+const CACHE_NAME = 'skycoup-v3';
 
 // Build asset URLs relative to the SW scope (works for subdirectory GitHub Pages)
 const BASE = self.registration.scope;

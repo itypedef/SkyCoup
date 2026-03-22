@@ -4,10 +4,33 @@
  * Host creates a peer with ID "skycoup-XXXX" (4-digit PIN).
  * Clients connect to that ID using the PIN. PeerJS handles all signaling.
  *
- * Requires internet/WiFi for initial PeerJS signaling (~1s), then runs P2P.
+ * Uses OpenRelay TURN servers to work across different networks/carriers.
  */
 
 const PEER_ID_PREFIX = 'skycoup-';
+
+// ICE config with free TURN servers (openrelay.metered.ca) for NAT traversal
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: 'turn:standard.relay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:standard.relay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:standard.relay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+  ],
+};
 
 function makePeerId(pin) {
   return PEER_ID_PREFIX + pin;
@@ -40,7 +63,7 @@ class HostNetwork {
   }
 
   _open(resolve, reject, attempts = 0) {
-    const peer = new Peer(makePeerId(this.pin));
+    const peer = new Peer(makePeerId(this.pin), { config: ICE_CONFIG });
     this.peer = peer;
 
     peer.on('open', () => resolve(this.pin));
@@ -110,7 +133,7 @@ class ClientNetwork {
   /** Connect to a host using their 4-digit PIN. */
   connect(pin, playerId, playerName) {
     return new Promise((resolve, reject) => {
-      this.peer = new Peer();
+      this.peer = new Peer(undefined, { config: ICE_CONFIG });
 
       this.peer.on('open', () => {
         this.conn = this.peer.connect(makePeerId(pin), { reliable: true });

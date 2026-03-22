@@ -1,250 +1,138 @@
 /**
- * SkyCoup - WebRTC Networking Layer
+ * SkyCoup - PeerJS Networking
  *
- * Supports two roles:
- *   HOST   - Runs the game engine, connects to each peer
- *   CLIENT - Connects to the host
+ * Host creates a peer with ID "skycoup-XXXX" (4-digit PIN).
+ * Clients connect to that ID using the PIN. PeerJS handles all signaling.
  *
- * Signaling is done manually via copy-paste / QR code exchange.
- * Works completely offline on local WiFi or mobile hotspot.
+ * Requires internet/WiFi for initial PeerJS signaling (~1s), then runs P2P.
  */
 
-const ICE_SERVERS = [
-  // STUN helps with NAT traversal when on the same WiFi network
-  // Falls back to link-local ICE candidates if STUN is unreachable
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-];
+const PEER_ID_PREFIX = 'skycoup-';
 
-const ICE_GATHER_TIMEOUT_MS = 5000;
-
-/**
- * Compress a string for compact transfer (QR/clipboard).
- * Uses LZString if available, otherwise raw base64.
- */
-function encode(str) {
-  try {
-    if (typeof LZString !== 'undefined') {
-      return 'lz:' + LZString.compressToBase64(str);
-    }
-  } catch (_) {}
-  return 'b64:' + btoa(unescape(encodeURIComponent(str)));
+function makePeerId(pin) {
+  return PEER_ID_PREFIX + pin;
 }
 
-function decode(str) {
-  if (str.startsWith('lz:')) return LZString.decompressFromBase64(str.slice(3));
-  if (str.startsWith('b64:')) return decodeURIComponent(escape(atob(str.slice(4))));
-  // Legacy fallback
-  return LZString.decompressFromBase64(str);
-}
-
-/** Wait for ICE gathering to complete (or timeout) */
-function waitForIce(pc) {
-  return new Promise(resolve => {
-    if (pc.iceGatheringState === 'complete') { resolve(); return; }
-    const timer = setTimeout(resolve, ICE_GATHER_TIMEOUT_MS);
-    pc.addEventListener('icegatheringstatechange', function handler() {
-      if (pc.iceGatheringState === 'complete') {
-        clearTimeout(timer);
-        pc.removeEventListener('icegatheringstatechange', handler);
-        resolve();
-      }
-    });
-  });
+function generatePin() {
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Host Connection Manager
+//  Host
 // ─────────────────────────────────────────────────────────────
 
 class HostNetwork {
-  constructor({ onPlayerJoined, onPlayerLeft, onMessage, onError }) {
+  constructor({ onPlayerJoined, onPlayerLeft, onMessage }) {
     this.onPlayerJoined = onPlayerJoined;
     this.onPlayerLeft = onPlayerLeft;
     this.onMessage = onMessage;
-    this.onError = onError;
-    this.peers = {}; // peerId -> { pc, dc, name }
-    this.pendingOffers = {}; // slotIndex -> { pc, offerCode }
+    this.peers = {};  // playerId -> DataConnection
+    this.peer = null;
+    this.pin = null;
   }
 
-  /**
-   * Create an offer for one peer slot. Returns encoded offer string.
-   * slotIndex: unique slot identifier (0,1,2...)
-   */
-  async createOffer(slotIndex) {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    const dc = pc.createDataChannel('coup', { ordered: true });
+  /** Create a PeerJS peer and return the 4-digit PIN when ready. */
+  start() {
+    return new Promise((resolve, reject) => {
+      this.pin = generatePin();
+      this._open(resolve, reject);
+    });
+  }
 
-    let peerId = null;
+  _open(resolve, reject, attempts = 0) {
+    const peer = new Peer(makePeerId(this.pin));
+    this.peer = peer;
 
-    dc.onopen = () => {
-      console.log(`[Host] Peer ${slotIndex} channel open`);
-    };
+    peer.on('open', () => resolve(this.pin));
 
-    dc.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'hello') {
-          peerId = msg.playerId;
-          this.peers[peerId] = { pc, dc, name: msg.name };
-          this.onPlayerJoined({ id: peerId, name: msg.name });
-          return;
-        }
-        if (peerId) this.onMessage(peerId, msg);
-      } catch (err) {
-        console.error('[Host] DC message error', err);
+    peer.on('connection', conn => this._setupConn(conn));
+
+    peer.on('error', err => {
+      if (err.type === 'unavailable-id' && attempts < 5) {
+        peer.destroy();
+        this.pin = generatePin();
+        this._open(resolve, reject, attempts + 1);
+      } else {
+        reject(err);
       }
-    };
+    });
+  }
 
-    dc.onclose = () => {
-      if (peerId && this.peers[peerId]) {
-        delete this.peers[peerId];
-        this.onPlayerLeft(peerId);
+  _setupConn(conn) {
+    conn.on('data', data => {
+      if (data.type === 'hello') {
+        conn.playerId = data.playerId;
+        conn.playerName = data.name;
+        this.peers[data.playerId] = conn;
+        this.onPlayerJoined({ id: data.playerId, name: data.name });
+        return;
       }
-    };
+      if (conn.playerId) this.onMessage(conn.playerId, data);
+    });
 
-    pc.onicecandidate = () => {}; // candidates collected in SDP
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await waitForIce(pc);
-
-    const offerCode = encode(JSON.stringify({
-      type: 'offer',
-      sdp: pc.localDescription,
-    }));
-
-    this.pendingOffers[slotIndex] = { pc, dc };
-    return offerCode;
+    conn.on('close', () => {
+      if (conn.playerId) {
+        delete this.peers[conn.playerId];
+        this.onPlayerLeft(conn.playerId);
+      }
+    });
   }
 
-  /**
-   * Accept an answer from a peer. Call after peer scans/pastes your offer
-   * and sends back their answer code.
-   */
-  async acceptAnswer(slotIndex, answerCode) {
-    const pending = this.pendingOffers[slotIndex];
-    if (!pending) throw new Error('No pending offer for slot ' + slotIndex);
-
-    const { pc } = pending;
-    const data = JSON.parse(decode(answerCode));
-    if (data.type !== 'answer') throw new Error('Expected answer, got: ' + data.type);
-
-    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-    delete this.pendingOffers[slotIndex];
+  send(playerId, msg) {
+    const conn = this.peers[playerId];
+    if (conn?.open) conn.send(msg);
   }
 
-  /** Send a message to a specific peer */
-  send(peerId, msg) {
-    const peer = this.peers[peerId];
-    if (peer && peer.dc.readyState === 'open') {
-      peer.dc.send(JSON.stringify(msg));
-    }
-  }
-
-  /** Broadcast a message to all connected peers */
   broadcast(msg) {
-    const json = JSON.stringify(msg);
-    for (const peer of Object.values(this.peers)) {
-      if (peer.dc.readyState === 'open') peer.dc.send(json);
+    for (const conn of Object.values(this.peers)) {
+      if (conn.open) conn.send(msg);
     }
   }
 
-  /** Broadcast a message to all except one */
-  broadcastExcept(excludeId, msg) {
-    const json = JSON.stringify(msg);
-    for (const [id, peer] of Object.entries(this.peers)) {
-      if (id !== excludeId && peer.dc.readyState === 'open') peer.dc.send(json);
-    }
-  }
-
-  isConnected(peerId) {
-    return this.peers[peerId]?.dc?.readyState === 'open';
-  }
-
-  connectedCount() {
-    return Object.values(this.peers).filter(p => p.dc.readyState === 'open').length;
+  connectedIds() {
+    return Object.keys(this.peers);
   }
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Client Connection Manager
+//  Client
 // ─────────────────────────────────────────────────────────────
 
 class ClientNetwork {
-  constructor({ onConnected, onDisconnected, onMessage, onError }) {
+  constructor({ onConnected, onDisconnected, onMessage }) {
     this.onConnected = onConnected;
     this.onDisconnected = onDisconnected;
     this.onMessage = onMessage;
-    this.onError = onError;
-    this.pc = null;
-    this.dc = null;
+    this.conn = null;
+    this.peer = null;
   }
 
-  /**
-   * Accept a host's offer and generate an answer code.
-   * Returns the encoded answer string to share back with the host.
-   */
-  async acceptOffer(offerCode, playerId, playerName) {
-    const data = JSON.parse(decode(offerCode));
-    if (data.type !== 'offer') throw new Error('Expected offer, got: ' + data.type);
+  /** Connect to a host using their 4-digit PIN. */
+  connect(pin, playerId, playerName) {
+    return new Promise((resolve, reject) => {
+      this.peer = new Peer();
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    this.pc = pc;
+      this.peer.on('open', () => {
+        this.conn = this.peer.connect(makePeerId(pin), { reliable: true });
 
-    pc.ondatachannel = (e) => {
-      const dc = e.channel;
-      this.dc = dc;
+        this.conn.on('open', () => {
+          this.conn.send({ type: 'hello', playerId, name: playerName });
+          this.onConnected();
+          resolve();
+        });
 
-      dc.onopen = () => {
-        // Introduce ourselves to the host
-        dc.send(JSON.stringify({ type: 'hello', playerId, name: playerName }));
-        this.onConnected();
-      };
+        this.conn.on('data', data => this.onMessage(data));
+        this.conn.on('close', () => this.onDisconnected());
+        this.conn.on('error', reject);
+      });
 
-      dc.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data);
-          this.onMessage(msg);
-        } catch (err) {
-          console.error('[Client] DC message error', err);
-        }
-      };
-
-      dc.onclose = () => {
-        this.onDisconnected();
-      };
-    };
-
-    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await waitForIce(pc);
-
-    return encode(JSON.stringify({
-      type: 'answer',
-      sdp: pc.localDescription,
-    }));
+      this.peer.on('error', reject);
+    });
   }
 
-  /** Send a message to the host */
   send(msg) {
-    if (this.dc && this.dc.readyState === 'open') {
-      this.dc.send(JSON.stringify(msg));
-    }
-  }
-
-  isConnected() {
-    return this.dc?.readyState === 'open';
-  }
-
-  disconnect() {
-    this.dc?.close();
-    this.pc?.close();
-    this.dc = null;
-    this.pc = null;
+    if (this.conn?.open) this.conn.send(msg);
   }
 }
 
-// Export
-if (typeof module !== 'undefined') module.exports = { HostNetwork, ClientNetwork, encode, decode };
+if (typeof module !== 'undefined') module.exports = { HostNetwork, ClientNetwork };

@@ -294,3 +294,107 @@ html, body {
   .action-grid { grid-template-columns: repeat(4, 1fr); }
   #screen-game { max-width: 700px; margin: 0 auto; }
 }
+
+/* ── Dice Roller ─────────────────────────────────────────── */
+#screen-dice { padding-top: 20px; }
+
+.dice-count-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+}
+.dice-count-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 1.4rem;
+  line-height: 1;
+  width: 36px; height: 36px;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.dice-count-btn:hover { background: var(--border); }
+#dice-count-display {
+  font-size: 1.5rem;
+  font-weight: 700;
+  min-width: 32px;
+  text-align: center;
+  flex: 1;
+}
+
+#dice-result-area {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  min-height: 80px;
+  text-align: center;
+}
+
+#dice-faces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.die-face {
+  background: var(--surface2);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  width: 52px; height: 52px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--primary);
+  animation: dieRoll 0.4s ease-out;
+}
+.die-face.die-max { color: var(--warning); border-color: var(--warning); }
+.die-face.die-min { color: var(--danger); border-color: var(--danger); }
+
+@keyframes dieRoll {
+  0%   { transform: scale(0.5) rotate(-20deg); opacity: 0; }
+  60%  { transform: scale(1.15) rotate(5deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+#dice-total {
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+#dice-total strong {
+  font-size: 1.6rem;
+  color: var(--text);
+  font-weight: 800;
+}
+
+#dice-log-wrap {
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow: hidden;
+  max-height: 200px;
+}
+#dice-log {
+  overflow-y: auto;
+  max-height: 162px;
+  padding: 8px;
+}
+.dice-log-entry {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 4px 4px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dice-log-entry:last-child { border-bottom: none; }
+.dice-log-roll { color: var(--text); }
+.dice-log-total { color: var(--primary); font-weight: 700; }

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="description" content="Play Coup card game over local WiFi or Bluetooth – no internet needed!" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>SkyCoup – Coup on the Go</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- ══ HOME ════════════════════════════════════════════════════ -->
+<section class="screen" id="screen-home">
+  <div class="logo">✈️</div>
+  <div>
+    <h1 class="app-title">Sky<span>Coup</span></h1>
+    <p class="app-subtitle">Play Coup on the go – no internet required</p>
+  </div>
+
+  <div class="home-buttons">
+    <button class="btn btn-primary" id="btn-create">🎮 Create Game</button>
+    <button class="btn btn-secondary" id="btn-join">📱 Join Game</button>
+  </div>
+
+  <div class="home-instructions">
+    <h3>How to play on a plane</h3>
+    <ol>
+      <li>One player creates a <strong>mobile hotspot</strong></li>
+      <li>All others connect to that hotspot</li>
+      <li>Open this app on all devices</li>
+      <li>Host clicks <em>Create Game</em>, others click <em>Join Game</em></li>
+      <li>Exchange connection codes (QR or copy-paste)</li>
+      <li>Enjoy Coup at 30,000 ft! ✈️</li>
+    </ol>
+    <p class="mt-8 text-muted">Works on local WiFi or when everyone loads the app first.</p>
+  </div>
+</section>
+
+<!-- ══ CREATE GAME ═══════════════════════════════════════════ -->
+<section class="screen" id="screen-create">
+  <div class="setup-screen scrollable">
+    <h2 class="screen-title">Create Game</h2>
+    <p class="screen-subtitle">You will be the host. Other players join via QR code or connection code.</p>
+
+    <div class="form-group">
+      <label for="host-name">Your Name</label>
+      <input type="text" id="host-name" placeholder="Enter your name" maxlength="20" autocomplete="off" />
+    </div>
+
+    <div class="form-group">
+      <label for="num-players">Number of Players</label>
+      <select id="num-players">
+        <option value="2">2 Players</option>
+        <option value="3">3 Players</option>
+        <option value="4" selected>4 Players</option>
+        <option value="5">5 Players</option>
+        <option value="6">6 Players</option>
+      </select>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="btn-back-home-1">← Back</button>
+      <button class="btn btn-primary" id="btn-go-create">Start Hosting →</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ HOST SETUP (Peer Slots) ══════════════════════════════ -->
+<section class="screen" id="screen-host-setup">
+  <div class="setup-screen scrollable">
+    <h2 class="screen-title" id="host-setup-title">Connect Players</h2>
+    <p class="screen-subtitle">Share each slot's code with the corresponding player.</p>
+
+    <div id="peer-slots"></div>
+
+    <button class="btn btn-success" id="btn-start-game" disabled>
+      🚀 Start Game
+    </button>
+    <p class="text-muted mt-8" style="text-align:center">All players must connect before starting.</p>
+  </div>
+</section>
+
+<!-- ══ JOIN GAME ═════════════════════════════════════════════ -->
+<section class="screen" id="screen-join">
+  <div class="setup-screen scrollable">
+    <h2 class="screen-title">Join Game</h2>
+    <p class="screen-subtitle">Paste the offer code from the host, or scan their QR code.</p>
+
+    <div class="form-group">
+      <label for="client-name">Your Name</label>
+      <input type="text" id="client-name" placeholder="Enter your name" maxlength="20" autocomplete="off" />
+    </div>
+
+    <div class="form-group">
+      <label for="join-offer-code">Host Offer Code</label>
+      <textarea id="join-offer-code" class="code-box" rows="4" placeholder="Paste the host's offer code here…" style="width:100%"></textarea>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="btn-back-home-2">← Back</button>
+      <button class="btn btn-primary" id="btn-go-join">Connect →</button>
+    </div>
+  </div>
+</section>
+
+<!-- ══ JOIN ANSWER ═══════════════════════════════════════════ -->
+<section class="screen" id="screen-join-answer">
+  <div class="setup-screen scrollable">
+    <h2 class="screen-title">Share Your Answer</h2>
+
+    <div id="join-generating">
+      <div style="text-align:center;padding:40px">
+        <div class="spinner" style="margin:0 auto"></div>
+        <p class="text-muted mt-8">Generating connection…</p>
+      </div>
+    </div>
+
+    <div id="join-answer-ready" style="display:none">
+      <p class="screen-subtitle">Show the host your QR code or copy the text below.</p>
+      <div id="join-answer-qr" style="margin-bottom:12px"></div>
+      <div class="code-box-row">
+        <textarea class="code-box" id="join-answer-code" readonly rows="4" style="flex:1"></textarea>
+        <button class="btn-icon" id="btn-copy-answer" title="Copy">📋</button>
+      </div>
+      <p class="text-muted mt-8" style="text-align:center">Waiting for host to scan your answer…</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ WAITING ROOM ═══════════════════════════════════════ -->
+<section class="screen" id="screen-waiting">
+  <div class="waiting-animation">✈️</div>
+  <h2 class="screen-title" style="text-align:center">SkyCoup</h2>
+  <p class="text-muted" id="waiting-message" style="text-align:center">Connected! Waiting for host to start…</p>
+</section>
+
+<!-- ══ GAME ══════════════════════════════════════════════════ -->
+<section class="screen" id="screen-game">
+  <!-- Other Players -->
+  <div id="players-area"></div>
+
+  <!-- My Cards -->
+  <div style="background:var(--surface);border-radius:12px;padding:8px">
+    <div style="font-size:0.75rem;color:var(--text-muted);padding:4px 4px 8px;font-weight:700;text-transform:uppercase">Your Cards</div>
+    <div id="my-cards"></div>
+  </div>
+
+  <!-- Action Area -->
+  <div id="action-area"></div>
+
+  <!-- Game Log -->
+  <div id="game-log-wrap">
+    <div class="log-header">📜 Game Log</div>
+    <div id="game-log"></div>
+  </div>
+</section>
+
+<!-- ══ GAME OVER ══════════════════════════════════════════════ -->
+<section class="screen" id="screen-game-over">
+  <div class="game-over-icon">🏆</div>
+  <h2 class="game-over-title">Game Over!</h2>
+  <div id="winner-name"></div>
+  <p id="winner-is-you" style="display:none">That's you! 🎉</p>
+  <p class="text-muted">wins the Coup!</p>
+  <button class="btn btn-primary" id="btn-play-again" style="max-width:300px">🔄 Play Again</button>
+</section>
+
+<!-- ── Scripts ─────────────────────────────────────────────── -->
+<script src="js/lz-string.min.js"></script>
+<script src="js/qrcode.min.js"></script>
+<script src="js/game.js"></script>
+<script src="js/network.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
